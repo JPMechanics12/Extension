@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WPAC Dashboard (IBTrACS-powered)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+</head>
+<body>
+  <div class="dashboard-container">
+    <div class="dashboard-header">
+      <h1>🌀 Western Pacific Typhoon Season Dashboard</h1>
+      <p>Real-time metrics from your local IBTrACS file + UCAR b-decks</p>
+      <div class="toolbar">
+  <label>Year:
+    <select id="yearSelect"></select>
+  </label>
+  <label>Cutoff date:
+    <input type="date" id="cutoffDate">
+  </label>
+  <span id="asOf"></span>
+</div>
+
+    </div>
+
+    <div class="dashboard-content">
+      <div class="metric-grid">
+        <!-- ACE -->
+        <div class="metric-card">
+          <h3>Accumulated Cyclone Energy (ACE)</h3>
+          <div class="ace-display">
+            <div id="aceTotal" class="ace-current">—</div>
+            <div class="ace-label">Total ACE (≥35 kt)</div>
+          </div>
+          <div class="ace-stats">
+            <div class="ace-stat">
+              <div id="stormsCount" class="ace-stat-value">—</div>
+              <div class="ace-stat-label">Storms (year)</div>
+            </div>
+            <div class="ace-stat">
+              <div id="parEntries" class="ace-stat-value">—</div>
+              <div class="ace-stat-label">PAR Entries</div>
+            </div>
+            <div class="ace-stat">
+              <div id="strongestWind" class="ace-stat-value">—</div>
+              <div class="ace-stat-label">Max 1-min Wind</div>
+            </div>
+            <div class="ace-stat">
+              <div id="lowestPres" class="ace-stat-value">—</div>
+              <div class="ace-stat-label">Min Central Pressure</div>
+            </div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <h3>YTD ACE vs 1950–2024 average</h3>
+          <div class="ace-display">
+            <div id="ytdCurrent" class="ace-current">—</div>
+            <div class="ace-label">YTD ACE (as of <span id="ytdDate">—</span>)</div>
+          </div>
+          <div class="ace-stats">
+            <div class="ace-stat">
+              <div id="ytdAvg" class="ace-stat-value">—</div>
+              <div class="ace-stat-label">Avg YTD (1950–2024)</div>
+            </div>
+            <div class="ace-stat">
+              <div id="ytdPct" class="ace-stat-value">—</div>
+              <div class="ace-stat-label">% of average</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Category days -->
+        <div class="metric-card">
+          <h3>Category Days (1-min scale)</h3>
+          <div class="cyclone-days">
+            <div class="cyclone-type td"><span class="cyclone-type-name">Tropical Depression</span><span id="dTD" class="cyclone-days-value">—</span></div>
+            <div class="cyclone-type ts"><span class="cyclone-type-name">Tropical Storm</span><span id="dTS" class="cyclone-days-value">—</span></div>
+            <div class="cyclone-type sts"><span class="cyclone-type-name">Severe Tropical Storm*</span><span id="dSTS" class="cyclone-days-value">—</span></div>
+            <div class="cyclone-type ty"><span class="cyclone-type-name">Typhoon</span><span id="dTY" class="cyclone-days-value">—</span></div>
+            <div class="cyclone-type sty"><span class="cyclone-type-name">Super Typhoon</span><span id="dSTY" class="cyclone-days-value">—</span></div>
+          </div>
+          <div class="comparison">*Approx. using 1‑min winds: 48–63 kt</div>
+        </div>
+      </div>
+
+      <div class="chart-section">
+        <div class="chart-container">
+  <h3 class="chart-title">Cumulative ACE (YTD) vs 1950–2024 average</h3>
+  <canvas id="ytdChart"></canvas>
+</div>
+
+        <div class="chart-container">
+          <h3 class="chart-title">Philippine Area of Responsibility (PAR) monthly entries</h3>
+          <canvas id="parChart"></canvas>
+        </div>
+        <div class="chart-container">
+          <h3 class="chart-title">Monthly ACE</h3>
+          <canvas id="aceChart"></canvas>
+        </div>
+        <div class="chart-container">
+          <h3 class="chart-title">Storm Formation by Month</h3>
+          <canvas id="stormChart"></canvas>
+        </div>
+        <div class="chart-container">
+          <h3 class="chart-title">Top storms (ACE)</h3>
+          <div id="stormsTable" class="table"></div>
+        </div>
+      </div>
+
+      <div class="par-section">
+        <div class="par-count" id="activeCount">Loading active b-decks…</div>
+        <div class="par-label">Active JTWC b-deck storms this year (fetched from UCAR)</div>
+      </div>
+    </div>
+
+</div>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
