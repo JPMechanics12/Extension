@@ -16,7 +16,7 @@ app.use(morgan('dev'));
 app.use('/api', apiRouter);
 
 // Serve frontend
-app.use('/', express.static(path.join(__dirname, '../frontend')));
+app.use('/', express.static(path.join(__dirname, '../')));
 
 const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
