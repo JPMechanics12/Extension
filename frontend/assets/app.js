@@ -9,7 +9,7 @@ const C_ACCENT  = cssVar('--sk-accent',  '#a78bfa');
 const C_WARN    = cssVar('--sk-warn',    '#f59e0b');
 const C_MUTED   = cssVar('--sk-muted',   '#94a3b8');
 
-
+let resolution = 'monthly';
 const els = {
   // YTD/cutoff card
   ytdCurrent: document.getElementById('ytdCurrent'),
@@ -31,8 +31,15 @@ const els = {
   dTY: document.getElementById('dTY'),
   dSTY: document.getElementById('dSTY'),
   activeCount: document.getElementById('activeCount'),
-  stormsTable: document.getElementById('stormsTable')
+  stormsTable: document.getElementById('stormsTable'),
+  resMonthly: document.getElementById('btnMonthly'),
+  resDaily: document.getElementById('btnDaily'),
 };
+async function loadDaily(year, cutoff){
+  const res = await fetch(`/api/ace/daily?year=${year}&end=${cutoff}&base_start=1950&base_end=2024`);
+  if (!res.ok) throw new Error('daily failed');
+  return res.json();
+}
 
 let charts = { par:null, ace:null, formed:null, ytd:null };
 
@@ -57,6 +64,80 @@ function ensureChart(ctx, type, data, options){
   ctx._chart = chart;
   return chart;
 }
+
+
+function renderDaily(d){
+  // Card numbers
+  els.ytdDate.textContent = d.asOf;
+  els.ytdCurrent.textContent = fmt(d.current.total);
+  const avgToDate = d.average.cum[d.average.cum.length - 1] || 0;
+  els.ytdAvg.textContent = fmt(avgToDate);
+  els.ytdPct.textContent = avgToDate > 0 ? `${Math.round((d.current.total/avgToDate)*100)}%` : '—';
+
+  // Precompute which indexes are the first of each month
+  const monthTickIdx = new Set();
+  for (let i = 0; i < d.labels.length; i++) {
+    const dt = new Date(d.labels[i] + 'T00:00:00Z');
+    if (dt.getUTCDate() === 1) monthTickIdx.add(i);
+  }
+
+  const ctx = document.getElementById('ytdChart').getContext('2d');
+  if (charts.ytd) charts.ytd.destroy();
+  charts.ytd = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: d.labels, // YYYY-MM-DD
+      datasets: [
+        { label: `YTD ${d.year} (daily)`, data: d.current.cum, borderWidth: 2, pointRadius: 0,
+          borderColor: C_PRIMARY, backgroundColor: 'rgba(34,211,238,0.12)', fill: true },
+        { label: `Avg 1950–2024`, data: d.average.cum, borderWidth: 2, pointRadius: 0,
+          borderColor: C_MUTED, borderDash: [6,4], fill: false },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          offset: true, 
+          // show month labels only at the first day-of-month
+          ticks: {
+            autoSkip: false,
+            maxRotation: 0,
+            minRotation: 0,
+            callback: (value, index) => {
+              if (!monthTickIdx.has(index)) return '';
+              const dt = new Date(d.labels[index] + 'T00:00:00Z');
+              return months[dt.getUTCMonth()];
+            }
+          },
+          // optional: slightly darker gridline on monthly ticks
+          grid: {
+            color: (ctx) => monthTickIdx.has(ctx.index)
+              ? 'rgba(148,163,184,0.35)'
+              : 'rgba(148,163,184,0.12)',
+            lineWidth: (ctx) => monthTickIdx.has(ctx.index) ? 1.2 : 0.6
+          }
+        },
+        y: { beginAtZero: true, title: { display: true, text: 'ACE' } }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const i = items[0].dataIndex;
+              const curD = d.current.daily[i] ?? 0;
+              const avgD = d.average.daily[i] ?? 0;
+              return [`Daily: ${fmt(curD)} (avg ${fmt(avgD)})`];
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
 
 // ----------------------- data loaders -----------------------
 async function loadSummary(year, cutoff){
@@ -114,7 +195,11 @@ function renderCutoff(d){
     options: {
       responsive:true,
       maintainAspectRatio:false,
-      scales:{ y:{ beginAtZero:true, title:{ display:true, text:'ACE' }}}
+      scales:{ x: {
+      offset: true,                 // <- new (keeps Jan/Dec inside)
+      ticks: { padding: 6 }         // <- small in-axis padding
+    },
+    y:{ beginAtZero:true, title:{ display:true, text:'ACE' }}}
     }
   });
 }
@@ -217,23 +302,45 @@ async function loadAll(){
   const year = Number(els.yearSelect.value);
   const cutoff = els.cutoffDate.value || defaultCutoffForYear(year);
   try{
-    const [summary, active, cutoffData] = await Promise.all([
+    const [summary, active] = await Promise.all([
       loadSummary(year, cutoff),
       loadActiveBDecks(year),
-      loadCutoff(year, cutoff)
     ]);
     renderSummary(summary);
     renderActive(active);
-    renderCutoff(cutoffData);
+
+    if (resolution === 'daily'){
+      const daily = await loadDaily(year, cutoff);
+      renderDaily(daily);
+    } else {
+      const cutoffData = await loadCutoff(year, cutoff);
+      renderCutoff(cutoffData);
+    }
   }catch(e){
     console.error(e);
     els.activeCount.textContent = 'Failed to load: ' + e.message;
   }
 }
 
+
 (function init(){
   Chart.defaults.font.family = 'Inter, -apple-system, BlinkMacSystemFont, sans-serif';
   Chart.defaults.color = '#333';
   buildYearSelect();
+
+  // resolution toggle
+  const btnM = document.getElementById('btnMonthly');
+  const btnD = document.getElementById('btnDaily');
+  btnM?.addEventListener('click', () => {
+    resolution = 'monthly';
+    btnM.classList.add('active'); btnD.classList.remove('active');
+    loadAll();
+  });
+  btnD?.addEventListener('click', () => {
+    resolution = 'daily';
+    btnD.classList.add('active'); btnM.classList.remove('active');
+    loadAll();
+  });
+
   loadAll();
 })();

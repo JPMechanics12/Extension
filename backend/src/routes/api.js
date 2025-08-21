@@ -9,7 +9,10 @@ import {
   computeACEByMonth, computeStormSummaries,
   computeCategoryDays, computePARMonthlyEntries, computeStormsFormedByMonth,
   computeACEYTD, computeACEYTDMonthlyCum, computeACEYTDClimo,
+  computeACEDaily, computeACEDailyClimo               // <-- add these
 } from '../services/metrics.js';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const router = express.Router();
 
@@ -42,6 +45,40 @@ function mapForYear(year) {
   }
   return cache.yearMaps.get(y);
 }
+
+/** Build daily series (Jan1→end) from b-decks */
+function dailyFromBDecks(bstorms, endDate){
+  const limit = endOfDayUTC(new Date(endDate));
+  const year = Number(new Date(endDate).getUTCFullYear());
+  const start = Date.UTC(year,0,1);
+  const nDays = Math.floor((Date.UTC(year, new Date(endDate).getUTCMonth(), new Date(endDate).getUTCDate()) - start)/MS_PER_DAY) + 1;
+
+  const daily = Array(nDays).fill(0);
+  for (const s of bstorms){
+    if (isInvest(s.num)) continue;
+    for (const p of s.points){
+      if (!p.t || p.t > limit) continue;
+      if (!isSynoptic(p.t)) continue;
+      const w = round5(p.wind);
+      if (w != null && w >= 35){
+        const di = Math.floor((Date.UTC(p.t.getUTCFullYear(), p.t.getUTCMonth(), p.t.getUTCDate()) - start)/MS_PER_DAY);
+        if (di >= 0 && di < nDays) daily[di] += aceFromWindKt(w);
+      }
+    }
+  }
+  const labels = [];
+  const cum = [];
+  let run=0;
+  for (let i=0;i<nDays;i++){
+    run += daily[i];
+    cum.push(Number(run.toFixed(1)));
+    const dt = new Date(Date.UTC(year,0,1) + i*MS_PER_DAY);
+    labels.push(dt.toISOString().slice(0,10));
+    daily[i] = Number(daily[i].toFixed(1));
+  }
+  return { labels, daily, cum, total: cum[cum.length-1] ?? 0 };
+}
+
 
 /* ---------------- small helpers used for b-decks ---------------- */
 const VALID_HOURS = new Set([0, 6, 12, 18]);
@@ -260,6 +297,48 @@ router.get('/ace/cutoff', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+// ----------------------- DAILY ACE (Jan1 → end date) ---------------------
+router.get('/ace/daily', async (req, res) => {
+  try{
+    ensureLoaded();
+    const year = Number(req.query.year || DEFAULT_YEAR);
+    const endStr = String(req.query.end || new Date().toISOString().slice(0,10));
+    const endDate = new Date(endStr);
+    const baseStart = Number(req.query.base_start || 1950);
+    const baseEnd   = Number(req.query.base_end   || 2024);
+
+    // Daily climatology always from IBTrACS
+    const { avgDaily, avgCum, yearsUsed } =
+      computeACEDailyClimo(cache.rows, endDate.getUTCMonth(), endDate.getUTCDate(), baseStart, baseEnd);
+
+    if (year >= 2025){
+      const bstorms = (await fetchActiveBDecks(year, 60)).filter(s => !isInvest(s.num));
+      const current = dailyFromBDecks(bstorms, endDate);
+      return res.json({
+        year, asOf: endStr,
+        baseline: { start: baseStart, end: baseEnd, years: yearsUsed },
+        labels: current.labels,                 // YYYY-MM-DD for the chosen year
+        current: { daily: current.daily, cum: current.cum, total: current.total },
+        average: { daily: avgDaily, cum: avgCum } // "MM-DD" axis length matches labels
+      });
+    }
+
+    // <=2024: IBTrACS
+    const current = computeACEDaily(cache.rows, year, endDate);
+    res.json({
+      year, asOf: endStr,
+      baseline: { start: baseStart, end: baseEnd, years: yearsUsed },
+      labels: current.labels,
+      current: { daily: current.daily, cum: current.cum, total: current.total },
+      average: { daily: avgDaily, cum: avgCum }
+    });
+  }catch(err){
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 /* ---------------- storms list ---------------- */
 router.get('/storms', async (req, res) => {

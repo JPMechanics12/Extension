@@ -296,3 +296,112 @@ export function computeACEYTDClimo(rows, month, day, startYear = 1950, endYear =
   const avgCumMonthly = sumCumMonthly.map(v => Number((v / yearsUsed).toFixed(1)));
   return { average, avgCumMonthly, yearsUsed, startYear, endYear };
 }
+
+/* ===== DAILY ACE HELPERS & FUNCTIONS ===== */
+
+const MS_PER_DAY = 24 * 3600 * 1000;
+const NLEAP_CUM = [0,31,59,90,120,151,181,212,243,273,304,334]; // non-leap, day-1 cum
+const LEAP_CUM  = [0,31,60,91,121,152,182,213,244,274,305,335];
+
+function isLeap(y){ return (y%4===0 && y%100!==0) || (y%400===0); }
+
+/** 0-based index of day in its own year (UTC) */
+function dayIndexUTC(d){
+  const y = d.getUTCFullYear();
+  const jan1 = Date.UTC(y,0,1);
+  return Math.floor((Date.UTC(y,d.getUTCMonth(), d.getUTCDate()) - jan1)/MS_PER_DAY);
+}
+
+/** 0-based "normalized" day index with Feb 29 removed.
+ *  Returns null for Feb 29 so we drop that day when averaging across years.
+ */
+function normDayIndexUTC(d){
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();      // 0..11
+  const day = d.getUTCDate();     // 1..31
+  const idx = dayIndexUTC(d);
+  if (!isLeap(y)) return idx;
+  if (m===1 && day===29) return null;      // drop Feb 29 entirely
+  if (m>1 || (m===1 && day>29)) return idx-1;
+  return idx;
+}
+
+/** length of normalized timeline from Jan 1..(month/day) inclusive */
+function normLengthToMonthDay(month, day){
+  // month=0..11, day=1..31
+  return NLEAP_CUM[month] + day; // returns 1..365
+}
+
+/** Build daily (Jan1→asOf) for a single season from IBTrACS rows */
+export function computeACEDaily(rows, year, asOfDate){
+  const end = endOfDayUTC(asOfDate);
+  const start = Date.UTC(Number(year), 0, 1);
+  const nDays = Math.floor((Date.UTC(Number(year), asOfDate.getUTCMonth(), asOfDate.getUTCDate()) - start)/MS_PER_DAY) + 1;
+  const daily = Array(nDays).fill(0);
+
+  for (const r of rows){
+    if (r.season !== Number(year)) continue;
+    if (!r.time || r.time > end) continue;
+    if (!isSynopticHour(r.time)) continue;
+    const w = round5(r.usaWind);
+    if (w != null && w >= ACE_THRESHOLD){
+      const di = Math.floor((Date.UTC(r.time.getUTCFullYear(), r.time.getUTCMonth(), r.time.getUTCDate()) - start)/MS_PER_DAY);
+      if (di >= 0 && di < nDays) daily[di] += aceFromWindKt(w);
+    }
+  }
+
+  const labels = [];
+  const cum = [];
+  let run = 0;
+  for (let i=0;i<nDays;i++){
+    run += daily[i];
+    cum.push(Number(run.toFixed(1)));
+    const dt = new Date(Date.UTC(Number(year),0,1) + i*MS_PER_DAY);
+    labels.push(dt.toISOString().slice(0,10));
+    daily[i] = Number(daily[i].toFixed(1));
+  }
+  return { labels, daily, cum, total: cum[cum.length-1] ?? 0 };
+}
+
+/** Daily baseline climatology (1950-2024 by default) up to month/day (inclusive).
+ *  Feb 29 is removed from the daily axis to avoid misalignment.
+ */
+export function computeACEDailyClimo(rows, endMonth, endDay, startYear=1950, endYear=2024){
+  const n = normLengthToMonthDay(endMonth, endDay); // 1..365
+  const sumDaily = Array(n).fill(0);
+  let yearsUsed = 0;
+
+  for (let y=startYear; y<=endYear; y++){
+    const cutoffY = endOfDayUTC(new Date(Date.UTC(y, endMonth, endDay)));
+    const dailyY = Array(n).fill(0);
+
+    for (const r of rows){
+      if (r.season !== y) continue;
+      if (!r.time || r.time > cutoffY) continue;
+      if (!isSynopticHour(r.time)) continue;
+      const w = round5(r.usaWind);
+      if (w == null || w < ACE_THRESHOLD) continue;
+
+      const ni = normDayIndexUTC(r.time);
+      if (ni == null) continue; // drop Feb 29
+      if (ni >= 0 && ni < n) dailyY[ni] += aceFromWindKt(w);
+    }
+
+    for (let i=0;i<n;i++) sumDaily[i] += dailyY[i];
+    yearsUsed++;
+  }
+
+  const avgDaily = sumDaily.map(v => Number((v/yearsUsed).toFixed(1)));
+  const avgCum = [];
+  let run=0;
+  for (let i=0;i<n;i++){ run += avgDaily[i]; avgCum.push(Number(run.toFixed(1))); }
+
+  // Build label dates in a synthetic non-leap year (e.g. 2001) for tooltips
+  const labels = [];
+  for (let i=0;i<n;i++){
+    const dt = new Date(Date.UTC(2001,0,1) + i*MS_PER_DAY);
+    labels.push(dt.toISOString().slice(5,10)); // "MM-DD"
+  }
+
+  return { labels, avgDaily, avgCum, yearsUsed, startYear, endYear };
+}

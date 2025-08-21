@@ -4,30 +4,47 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>WPAC Dashboard (IBTrACS-powered)</title>
+
+  <!-- Fonts & CSS -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/styles.css"/>
+
+  <!-- Chart.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
 <body>
   <div class="dashboard-container">
+
+    <!-- Header -->
     <div class="dashboard-header">
       <h1>🌀 Western Pacific Typhoon Season Dashboard</h1>
       <p>Real-time metrics from your local IBTrACS file + UCAR b-decks</p>
-      <div class="toolbar">
-  <label>Year:
-    <select id="yearSelect"></select>
-  </label>
-  <label>Cutoff date:
-    <input type="date" id="cutoffDate">
-  </label>
-  <span id="asOf"></span>
-</div>
 
+      <!-- Top navigation -->
+      <nav class="site-nav" role="navigation" aria-label="Primary">
+        <a href="/" class="nav-link active" aria-current="page">Home</a>
+        <a href="https://www.garbinwx.cloud/" class="nav-link" target="_blank" rel="noopener">GarbinWx</a>
+        <!-- <a href="#active-storms" class="nav-link">Current Active Storms</a>-->
+      </nav>
+
+      <!-- Controls -->
+      <div class="toolbar">
+        <label>Year:
+          <select id="yearSelect"></select>
+        </label>
+        <label>Cutoff date:
+          <input type="date" id="cutoffDate">
+        </label>
+        <span id="asOf"></span>
+      </div>
     </div>
 
+    <!-- Content -->
     <div class="dashboard-content">
+
+      <!-- Metrics row -->
       <div class="metric-grid">
         <!-- ACE -->
         <div class="metric-card">
@@ -55,6 +72,8 @@
             </div>
           </div>
         </div>
+
+        <!-- YTD vs average -->
         <div class="metric-card">
           <h3>YTD ACE vs 1950–2024 average</h3>
           <div class="ace-display">
@@ -73,9 +92,9 @@
           </div>
         </div>
 
-        <!-- Category days -->
+        <!-- Category Days -->
         <div class="metric-card">
-          <h3>Category Days (1-min scale)</h3>
+          <h3>Category Days (Average from 1950 to 2024)</h3>
           <div class="cyclone-days">
             <div class="cyclone-type td"><span class="cyclone-type-name">Tropical Depression</span><span id="dTD" class="cyclone-days-value">—</span></div>
             <div class="cyclone-type ts"><span class="cyclone-type-name">Tropical Storm</span><span id="dTS" class="cyclone-days-value">—</span></div>
@@ -83,43 +102,51 @@
             <div class="cyclone-type ty"><span class="cyclone-type-name">Typhoon</span><span id="dTY" class="cyclone-days-value">—</span></div>
             <div class="cyclone-type sty"><span class="cyclone-type-name">Super Typhoon</span><span id="dSTY" class="cyclone-days-value">—</span></div>
           </div>
-          <div class="comparison">*Approx. using 1‑min winds: 48–63 kt</div>
+          <div class="comparison">*Approx. using 1-min winds: 48–63 kt</div>
         </div>
       </div>
 
+      <!-- Charts -->
       <div class="chart-section">
         <div class="chart-container">
-  <h3 class="chart-title">Cumulative ACE (YTD) vs 1950–2024 average</h3>
-  <canvas id="ytdChart"></canvas>
-</div>
+          <h3 class="chart-title">Cumulative ACE (YTD) vs 1950–2024 average</h3 >
+          <div class="res-toggle" aria-label="Resolution">
+          <button id="btnMonthly" class="btn sm active" type="button">Monthly</button>
+          <button id="btnDaily" class="btn sm" type="button">Daily</button>
+        </div>
+          <canvas id="ytdChart"></canvas>
+        </div>
 
         <div class="chart-container">
           <h3 class="chart-title">Philippine Area of Responsibility (PAR) monthly entries</h3>
           <canvas id="parChart"></canvas>
         </div>
+
         <div class="chart-container">
           <h3 class="chart-title">Monthly ACE</h3>
           <canvas id="aceChart"></canvas>
         </div>
+
         <div class="chart-container">
           <h3 class="chart-title">Storm Formation by Month</h3>
           <canvas id="stormChart"></canvas>
         </div>
+
         <div class="chart-container">
           <h3 class="chart-title">Top storms (ACE)</h3>
           <div id="stormsTable" class="table"></div>
         </div>
       </div>
 
-      <div class="par-section">
+      <!-- Active storms (anchor target for nav) -->
+      <div class="par-section" id="active-storms">
         <div class="par-count" id="activeCount">Loading active b-decks…</div>
         <div class="par-label">Active JTWC b-deck storms this year (fetched from UCAR)</div>
       </div>
     </div>
-
-</div>
   </div>
 
+  <!-- App -->
   <script src="assets/app.js"></script>
 </body>
 </html>

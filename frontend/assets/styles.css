@@ -9,6 +9,57 @@
   --sk-accent:  #a78bfa; /* violet */
   --sk-warn:    #f59e0b; /* amber */
 }
+/* --- Global link look (subtle, matches your theme) --- */
+a {
+  color: var(--sk-primary);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+/* --- Top navigation bar --- */
+.site-nav{
+  display:flex;
+  gap:.55rem;
+  justify-content:center;
+  align-items:center;
+  flex-wrap:wrap;
+  margin:12px auto 6px auto;
+}
+
+.nav-link{
+  --pill-bg: rgba(255,255,255,.06);
+  --pill-border: var(--sk-border);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 14px;
+  border-radius:9999px;
+  font-weight:700;
+  letter-spacing:.2px;
+  background: var(--pill-bg);
+  border:1px solid var(--pill-border);
+  color: var(--sk-text);
+  box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  transition: box-shadow .2s ease, transform .12s ease, background .2s ease, border-color .2s ease;
+}
+
+.nav-link:hover{
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, rgba(34,211,238,.18), rgba(167,139,250,.18));
+  border-color: rgba(255,255,255,.25);
+  box-shadow: 0 12px 24px rgba(0,0,0,.25);
+}
+
+/* Active pill – gradient fill like the screenshot */
+.nav-link.active{
+  background: linear-gradient(90deg, var(--sk-primary), var(--sk-accent));
+  color: #0b1220;             /* readable on the gradient */
+  border-color: transparent;
+  box-shadow: 0 10px 26px rgba(34,211,238,.25), 0 4px 10px rgba(0,0,0,.35);
+}
+.nav-link.active:hover{
+  filter: brightness(1.05);
+}
 
 body{
   background: radial-gradient(80% 60% at 50% 0%, #1f2437 0%, #0b1220 60%, #0b1220 100%);
@@ -116,27 +167,20 @@ body {
 }
 .chart-container.full { grid-column: 1 / -1; height: 340px; }
 /* One-column layout for the whole dashboard */
-.main-grid, .dashboard-grid, .charts-grid, .cards-grid, .grid, .row, .panels-grid {
-  display: grid !important;
-  grid-template-columns: 1fr !important;
-  gap: 16px !important;
-}
+.main-grid, .dashboard-grid, .charts-grid, .cards-grid, .grid, .row, .panels-grid {display: grid !important;grid-template-columns: 1fr !important;gap: 16px !important;}
 .card, .panel, .chart, .tile, .box, .section {width: 100%;}
 /* === Force single-column layout (overrides earlier grid rules) === */
-.metric-grid,
-.chart-section {
-  grid-template-columns: 1fr !important;
-  gap: .4rem;
+.metric-grid,.chart-section {grid-template-columns: 1fr !important;gap: .4rem;}
+.chart-container,.metric-card {width: 100%;gap: .4rem;margin-bottom: .3rem;}
+.chart-container.full {grid-column: 1 / -1;}
+.res-toggle { display:flex; gap:.5rem; justify-content:center; margin:-4px 0 8px; }
+.btn.sm { padding:4px 10px; font-size:.85rem; border-radius:8px; border:1px solid var(--sk-border); background:#0f172a; color:var(--sk-text); }
+.btn.sm.active { outline:2px solid var(--sk-primary); }
+/* more room for x-axis labels */
+.chart-container {
+  padding-bottom: 36px; /* was 15px total padding; add some more for labels */
+  margin-bottom: 0.75rem; /* a bit more gap to the next card */
 }
 
-.chart-container,
-.metric-card {
-  width: 100%;
-  gap: .4rem;
-  margin-bottom: .3rem;
-}
-
-.chart-container.full {
-  grid-column: 1 / -1;
-}
-
+/* ensure the canvas itself doesn't add inline baseline space */
+.chart-container canvas { display: block; }
