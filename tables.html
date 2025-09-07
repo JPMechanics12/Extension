@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WPAC | Rank Neighbors</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="frontend/assets/tables.css"/>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1>Rank neighbors (YTD ACE)</h1>
+      <p>See your season’s YTD ACE rank vs 1950–2024 and the 4 above / 4 below.</p>
+      <nav class="site-nav">
+        <a href="index.html">Home</a>
+        <a href="https://www.garbinwx.cloud/" target="_blank" rel="noopener">GarbinWx</a>
+        <a class="active" href="tables.html">Rank tables</a>
+      </nav>
+
+      <div class="controls">
+        <label>Year
+          <select id="yearSelect"></select>
+        </label>
+        <label>Cutoff date
+          <input type="date" id="cutoffDate"/>
+        </label>
+        <button id="refreshBtn" class="btn">Refresh</button>
+      </div>
+
+      <div id="status" class="status">—</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="summary">
+        <div class="pill"><span id="asOf">—</span></div>
+        <div class="metric">
+          <div class="metric-label">Current YTD ACE</div>
+          <div class="metric-value" id="currentAce">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Rank</div>
+          <div class="metric-value" id="currentRank">—</div>
+          <div class="metric-sub" id="rankOf">—</div>
+        </div>
+      </div>
+
+      <div class="table" id="ranksTable"></div>
+      <div class="hint">
+        * Extra columns are computed for each year using the same cutoff date.
+      </div>
+    </section>
+  </main>
+
+  <script src="frontend/assets/tables.js"></script>
+</body>
+</html>

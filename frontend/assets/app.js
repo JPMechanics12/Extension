@@ -1,4 +1,56 @@
 /* global Chart */
+
+// simple callout plugin used only on the daily YTD chart
+const calloutPlugin = {
+  id: 'callout',
+  afterDatasetsDraw(chart, _args, _pluginOptions){
+    const opts = chart.options.plugins && chart.options.plugins.callout;
+    if (!opts) return;
+
+    const { index, value, lines } = opts;
+    if (index == null || value == null) return;
+
+    const { ctx, chartArea, scales } = chart;
+    const x = scales.x.getPixelForValue(index);
+    const y = scales.y.getPixelForValue(value);
+
+    ctx.save();
+    ctx.font = '12px Inter, -apple-system, system-ui, sans-serif';
+    const lh = 15;
+    const w = 12 + Math.max(...lines.map(t => ctx.measureText(t).width)) + 12;
+    const h = 10 + lines.length * lh + 6;
+
+    // place box above and a bit right of the last point, clamped to chart area
+    let bx = Math.min(chartArea.right - w - 6, Math.max(chartArea.left + 6, x + 8));
+    let by = Math.max(chartArea.top + 6, y - h - 10);
+
+    // box
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.strokeStyle = 'rgba(2,6,23,0.15)';
+    ctx.lineWidth = 1;
+    const r = 8;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by);
+    ctx.lineTo(bx + w - r, by);
+    ctx.quadraticCurveTo(bx + w, by, bx + w, by + r);
+    ctx.lineTo(bx + w, by + h - r);
+    ctx.quadraticCurveTo(bx + w, by + h, bx + w - r, by + h);
+    ctx.lineTo(bx + r, by + h);
+    ctx.quadraticCurveTo(bx, by + h, bx, by + h - r);
+    ctx.lineTo(bx, by + r);
+    ctx.quadraticCurveTo(bx, by, bx + r, by);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // text
+    ctx.fillStyle = '#0b1220';
+    lines.forEach((t,i)=> ctx.fillText(t, bx + 12, by + 18 + i*lh));
+    ctx.restore();
+  }
+};
+
+
+
 const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function cssVar(name, fallback){ 
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); 
@@ -74,7 +126,7 @@ function renderDaily(d){
   els.ytdAvg.textContent = fmt(avgToDate);
   els.ytdPct.textContent = avgToDate > 0 ? `${Math.round((d.current.total/avgToDate)*100)}%` : '—';
 
-  // Precompute which indexes are the first of each month
+  // month ticks
   const monthTickIdx = new Set();
   for (let i = 0; i < d.labels.length; i++) {
     const dt = new Date(d.labels[i] + 'T00:00:00Z');
@@ -83,46 +135,104 @@ function renderDaily(d){
 
   const ctx = document.getElementById('ytdChart').getContext('2d');
   if (charts.ytd) charts.ytd.destroy();
+
+  // build datasets: bands first (drawn under), then mean & current on top
+  const bandColorRange = 'rgba(16,185,129,0.10)';   // green-ish
+  const bandColor1sd   = 'rgba(16,185,129,0.18)';
+  const bandColor05sd  = 'rgba(16,185,129,0.28)';
+
+  const ds = [];
+
+  if (d.bands) {
+    // Range (min..max)
+    ds.push(
+      { label:'__range-low', data: d.bands.range.low,  borderColor:'transparent', pointRadius:0, fill:false, backgroundColor:bandColorRange, order:-10 },
+      { label:'Range',       data: d.bands.range.high, borderColor:'transparent', pointRadius:0, fill:'-1', backgroundColor:bandColorRange, order:-10 }
+    );
+    // ±1σ
+    ds.push(
+      { label:'__1sd-low', data: d.bands.sd1.low,  borderColor:'transparent', pointRadius:0, fill:false, backgroundColor:bandColor1sd, order:-9 },
+      { label:'1 S.D.',     data: d.bands.sd1.high, borderColor:'transparent', pointRadius:0, fill:'-1', backgroundColor:bandColor1sd, order:-9 }
+    );
+    // ±0.5σ
+    ds.push(
+      { label:'__05sd-low', data: d.bands.sd05.low,  borderColor:'transparent', pointRadius:0, fill:false, backgroundColor:bandColor05sd, order:-8 },
+      { label:'0.5 S.D.',   data: d.bands.sd05.high, borderColor:'transparent', pointRadius:0, fill:'-1', backgroundColor:bandColor05sd, order:-8 }
+    );
+  }
+
+  // Average line
+  ds.push({
+    label: 'Avg 1950–2024',
+    data: d.average.cum,
+    borderWidth: 2,
+    pointRadius: 0,
+    borderColor: C_MUTED,
+    borderDash: [6,4],
+    fill: false,
+    order: 5
+  });
+
+  // Current (daily cumulative)
+  ds.push({
+    label: `YTD ${d.year} (daily)`,
+    data: d.current.cum,
+    borderWidth: 2,
+    pointRadius: 0,
+    borderColor: C_PRIMARY,
+    backgroundColor: 'rgba(34,211,238,0.12)',
+    fill: true,
+    order: 10
+  });
+
+  const lastIdx = d.current.cum.length - 1;
+
   charts.ytd = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels: d.labels, // YYYY-MM-DD
-      datasets: [
-        { label: `YTD ${d.year} (daily)`, data: d.current.cum, borderWidth: 2, pointRadius: 0,
-          borderColor: C_PRIMARY, backgroundColor: 'rgba(34,211,238,0.12)', fill: true },
-        { label: `Avg 1950–2024`, data: d.average.cum, borderWidth: 2, pointRadius: 0,
-          borderColor: C_MUTED, borderDash: [6,4], fill: false },
-      ],
-    },
+    data: { labels: d.labels, datasets: ds },
+    plugins: [calloutPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       scales: {
         x: {
-          offset: true, 
-          // show month labels only at the first day-of-month
+          offset: true,
           ticks: {
-            autoSkip: false,
-            maxRotation: 0,
-            minRotation: 0,
-            callback: (value, index) => {
+            autoSkip: false, maxRotation: 0, minRotation: 0,
+            callback: (_value, index) => {
               if (!monthTickIdx.has(index)) return '';
               const dt = new Date(d.labels[index] + 'T00:00:00Z');
               return months[dt.getUTCMonth()];
-            }
+            },
+            padding: 6
           },
-          // optional: slightly darker gridline on monthly ticks
           grid: {
-            color: (ctx) => monthTickIdx.has(ctx.index)
+            color: (c) => monthTickIdx.has(c.index)
               ? 'rgba(148,163,184,0.35)'
               : 'rgba(148,163,184,0.12)',
-            lineWidth: (ctx) => monthTickIdx.has(ctx.index) ? 1.2 : 0.6
+            lineWidth: (c) => monthTickIdx.has(c.index) ? 1.2 : 0.6
           }
         },
         y: { beginAtZero: true, title: { display: true, text: 'ACE' } }
       },
       plugins: {
+        legend: {
+          labels: {
+            // hide helper datasets from legend (those starting with "__")
+            filter: (item) => !item.text || !item.text.startsWith('__')
+          }
+        },
+        // options read by our calloutPlugin
+        callout: {
+          index: lastIdx,
+          value: d.current.cum[lastIdx],
+          lines: [
+            `ACE: ${fmt(d.current.total)}`,
+            `Avg: ${fmt(avgToDate)}`,
+            d.rank ? `Rank: ${d.rank.high}/${d.rank.of}` : ''
+          ].filter(Boolean)
+        },
         tooltip: {
           callbacks: {
             afterBody: (items) => {
@@ -137,6 +247,7 @@ function renderDaily(d){
     }
   });
 }
+
 
 
 // ----------------------- data loaders -----------------------

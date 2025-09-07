@@ -80,6 +80,18 @@ function dailyFromBDecks(bstorms, endDate){
 }
 
 
+// Build YTD ACE totals (to the SAME month/day) for a range of years.
+// Returns [{ year, total }] for baseStart..baseEnd inclusive.
+function buildBaselineYtdTotals(rows, month, day, baseStart = 1950, baseEnd = 2024) {
+  const out = [];
+  const cutoff = (y) => new Date(Date.UTC(y, month, day));
+  for (let y = baseStart; y <= baseEnd; y++) {
+    const total = computeACEYTD(rows, y, cutoff(y));
+    out.push({ year: y, total });
+  }
+  return out;
+}
+
 /* ---------------- small helpers used for b-decks ---------------- */
 const VALID_HOURS = new Set([0, 6, 12, 18]);
 const isSynoptic = d => VALID_HOURS.has(d.getUTCHours());
@@ -169,6 +181,69 @@ router.get('/reload', (_req, res) => {
   try { ensureLoaded(true); res.json({ ok: true, reloaded: true }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
+// ----------------------- YTD RANKS (neighbors) ----------------------------
+// GET /api/ranks?year=2025&cutoff=2025-08-21&base_start=1950&base_end=2024
+router.get('/ranks', async (req, res) => {
+  try {
+    ensureLoaded();
+
+    const year       = Number(req.query.year || DEFAULT_YEAR);
+    const cutoffStr  = String(req.query.cutoff || new Date().toISOString().slice(0,10));
+    const cutoffDate = new Date(cutoffStr);
+
+    const baseStart  = Number(req.query.base_start || 1950);
+    const baseEnd    = Number(req.query.base_end   || 2024);
+
+    // Build baseline list (IBTrACS only)
+    const month = cutoffDate.getUTCMonth();
+    const day   = cutoffDate.getUTCDate();
+    const baseline = buildBaselineYtdTotals(cache.rows, month, day, baseStart, baseEnd);
+
+    // sort by total DESC (highest ACE first)
+    baseline.sort((a,b) => b.total - a.total);
+
+    // current year's YTD total (IBTrACS for <=2024, b-decks for 2025+)
+    let currentTotal = null;
+    if (year >= 2025) {
+      const bstorms = (await fetchActiveBDecks(year, 60)).filter(s => !isInvest(s.num));
+      const { total } = aceYTDFromBDecks(bstorms, cutoffDate);
+      currentTotal = total;
+    } else {
+      currentTotal = computeACEYTD(cache.rows, year, cutoffDate);
+    }
+
+    // rank among baseline (not inserting current if outside baseline years)
+    // 1 = highest
+    const higher = baseline.filter(e => e.total > currentTotal).length;
+    const currentRank = higher + 1;
+
+    // find insertion index to pick neighbors
+    let insertIdx = baseline.findIndex(e => e.year === year);
+    if (insertIdx === -1) {
+      // not part of baseline — find where it would land
+      insertIdx = baseline.findIndex(e => e.total <= currentTotal);
+      if (insertIdx === -1) insertIdx = baseline.length; // lowest
+    }
+
+    const start = Math.max(0, insertIdx - 4);
+    const end   = Math.min(baseline.length, start + 9);
+    const window = baseline.slice(start, end).map((e, i) => ({
+      year: e.year,
+      total: Number(e.total.toFixed(1)),
+      rank: start + i + 1
+    }));
+
+    res.json({
+      year,
+      asOf: cutoffStr,
+      baseline: { start: baseStart, end: baseEnd, years: baseline.length },
+      current: { year, total: Number(currentTotal.toFixed(1)), rank: currentRank },
+      window   // the 9-row slice (4 above, you, 4 below) if possible
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 /* ---------------- summary ---------------- */
 router.get('/summary', async (req, res) => {
@@ -185,7 +260,7 @@ router.get('/summary', async (req, res) => {
     for (let y = baseStart; y <= baseEnd; y++) {
       const m = groupByStorm(cache.rows, y);
       if (!m.size) continue;
-      const d = computeCategoryDays(m, y);
+      const d = computeCategoryDays(m, y, cutoff || null);
       sums.TD += d.TD; sums.TS += d.TS; sums.STS += d.STS; sums.TY += d.TY; sums.STY += d.STY;
       yearsUsed++;
     }
@@ -309,30 +384,53 @@ router.get('/ace/daily', async (req, res) => {
     const baseStart = Number(req.query.base_start || 1950);
     const baseEnd   = Number(req.query.base_end   || 2024);
 
-    // Daily climatology always from IBTrACS
-    const { avgDaily, avgCum, yearsUsed } =
-      computeACEDailyClimo(cache.rows, endDate.getUTCMonth(), endDate.getUTCDate(), baseStart, baseEnd);
+    // Baseline (always IBTrACS)
+    const {
+      avgDaily, avgCum, minCum, maxCum,
+      sd05Low, sd05High, sd1Low, sd1High,
+      baselineTotals, yearsUsed
+    } = computeACEDailyClimo(cache.rows, endDate.getUTCMonth(), endDate.getUTCDate(), baseStart, baseEnd);
 
     if (year >= 2025){
       const bstorms = (await fetchActiveBDecks(year, 60)).filter(s => !isInvest(s.num));
       const current = dailyFromBDecks(bstorms, endDate);
+
+      // rank vs baseline (1 = highest)
+      const higher = baselineTotals.filter(t => t > current.total).length;
+      const rankHigh = higher + 1;
+
       return res.json({
         year, asOf: endStr,
         baseline: { start: baseStart, end: baseEnd, years: yearsUsed },
-        labels: current.labels,                 // YYYY-MM-DD for the chosen year
+        labels: current.labels,
         current: { daily: current.daily, cum: current.cum, total: current.total },
-        average: { daily: avgDaily, cum: avgCum } // "MM-DD" axis length matches labels
+        average: { daily: avgDaily, cum: avgCum },
+        bands: {
+          range: { low: minCum, high: maxCum },
+          sd1:   { low: sd1Low,  high: sd1High },
+          sd05:  { low: sd05Low, high: sd05High }
+        },
+        rank: { high: rankHigh, of: yearsUsed }
       });
     }
 
-    // <=2024: IBTrACS
+    // <= 2024: IBTrACS
     const current = computeACEDaily(cache.rows, year, endDate);
+    const higher = baselineTotals.filter(t => t > current.total).length;
+    const rankHigh = higher + 1;
+
     res.json({
       year, asOf: endStr,
       baseline: { start: baseStart, end: baseEnd, years: yearsUsed },
       labels: current.labels,
       current: { daily: current.daily, cum: current.cum, total: current.total },
-      average: { daily: avgDaily, cum: avgCum }
+      average: { daily: avgDaily, cum: avgCum },
+      bands: {
+        range: { low: minCum, high: maxCum },
+        sd1:   { low: sd1Low,  high: sd1High },
+        sd05:  { low: sd05Low, high: sd05High }
+      },
+      rank: { high: rankHigh, of: yearsUsed }
     });
   }catch(err){
     res.status(500).json({ error: err.message });

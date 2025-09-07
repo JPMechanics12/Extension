@@ -366,42 +366,93 @@ export function computeACEDaily(rows, year, asOfDate){
 /** Daily baseline climatology (1950-2024 by default) up to month/day (inclusive).
  *  Feb 29 is removed from the daily axis to avoid misalignment.
  */
+// --- Daily baseline climatology (with bands & stats) -----------------------
 export function computeACEDailyClimo(rows, endMonth, endDay, startYear=1950, endYear=2024){
   const n = normLengthToMonthDay(endMonth, endDay); // 1..365
-  const sumDaily = Array(n).fill(0);
+
+  // group rows by season for faster scan
+  const byYear = new Map();
+  for (const r of rows) {
+    if (r.season < startYear || r.season > endYear) continue;
+    if (!byYear.has(r.season)) byYear.set(r.season, []);
+    byYear.get(r.season).push(r);
+  }
+
+  const cumByYear = [];          // cumulative series per baseline year (length n)
   let yearsUsed = 0;
 
   for (let y=startYear; y<=endYear; y++){
+    const list = byYear.get(y) || [];
     const cutoffY = endOfDayUTC(new Date(Date.UTC(y, endMonth, endDay)));
     const dailyY = Array(n).fill(0);
 
-    for (const r of rows){
-      if (r.season !== y) continue;
+    for (const r of list){
       if (!r.time || r.time > cutoffY) continue;
       if (!isSynopticHour(r.time)) continue;
       const w = round5(r.usaWind);
       if (w == null || w < ACE_THRESHOLD) continue;
 
       const ni = normDayIndexUTC(r.time);
-      if (ni == null) continue; // drop Feb 29
+      if (ni == null) continue;         // drop Feb 29
       if (ni >= 0 && ni < n) dailyY[ni] += aceFromWindKt(w);
     }
 
-    for (let i=0;i<n;i++) sumDaily[i] += dailyY[i];
+    // cumulative for this year
+    const cum = new Array(n);
+    let run = 0;
+    for (let i=0;i<n;i++){ run += dailyY[i]; cum[i] = run; }
+    cumByYear.push(cum);
     yearsUsed++;
   }
 
-  const avgDaily = sumDaily.map(v => Number((v/yearsUsed).toFixed(1)));
-  const avgCum = [];
-  let run=0;
-  for (let i=0;i<n;i++){ run += avgDaily[i]; avgCum.push(Number(run.toFixed(1))); }
+  // stats across baseline years at each day index
+  const avgCum = new Array(n).fill(0);
+  const minCum = new Array(n).fill(+Infinity);
+  const maxCum = new Array(n).fill(-Infinity);
+  const sdCum  = new Array(n).fill(0);
 
-  // Build label dates in a synthetic non-leap year (e.g. 2001) for tooltips
-  const labels = [];
   for (let i=0;i<n;i++){
-    const dt = new Date(Date.UTC(2001,0,1) + i*MS_PER_DAY);
-    labels.push(dt.toISOString().slice(5,10)); // "MM-DD"
+    let sum = 0;
+    for (const c of cumByYear){ sum += c[i]; }
+    const mean = sum / yearsUsed;
+    avgCum[i] = Number(mean.toFixed(1));
+
+    let vSum = 0, mn = +Infinity, mx = -Infinity;
+    for (const c of cumByYear){
+      const v = c[i]; vSum += (v-mean)*(v-mean);
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    minCum[i] = Number(mn.toFixed(1));
+    maxCum[i] = Number(mx.toFixed(1));
+    sdCum[i]  = Math.sqrt(vSum/yearsUsed);
   }
 
-  return { labels, avgDaily, avgCum, yearsUsed, startYear, endYear };
+  // daily (not strictly required, kept for tooltips)
+  const avgDaily = new Array(n);
+  avgDaily[0] = Number(avgCum[0].toFixed(1));
+  for (let i=1;i<n;i++){ avgDaily[i] = Number((avgCum[i] - avgCum[i-1]).toFixed(1)); }
+
+  // bands: mean ± 0.5σ and ±1σ (clamped at 0)
+  const sd05Low  = avgCum.map((m,i)=>Number(Math.max(0, m - 0.5*sdCum[i]).toFixed(1)));
+  const sd05High = avgCum.map((m,i)=>Number((m + 0.5*sdCum[i]).toFixed(1)));
+  const sd1Low   = avgCum.map((m,i)=>Number(Math.max(0, m - 1.0*sdCum[i]).toFixed(1)));
+  const sd1High  = avgCum.map((m,i)=>Number((m + 1.0*sdCum[i]).toFixed(1)));
+
+  // baseline totals at end date (for ranking)
+  const baselineTotals = cumByYear.map(c => Number(c[n-1].toFixed(1)));
+
+  return {
+    // label axis for tooltips (MM-DD in synthetic non-leap year)
+    labels: Array.from({length:n}, (_,i) =>
+      new Date(Date.UTC(2001,0,1) + i*MS_PER_DAY).toISOString().slice(5,10)
+    ),
+    avgDaily,
+    avgCum,
+    minCum, maxCum,
+    sd05Low, sd05High,
+    sd1Low,  sd1High,
+    baselineTotals,
+    yearsUsed, startYear, endYear
+  };
 }
