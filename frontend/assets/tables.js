@@ -1,15 +1,18 @@
 // ---------- CONFIG ----------
-const API_BASE = 'https://extension-47r9.onrender.com'; // change to '' or '/api' if same origin
+const API_BASE =
+  location.hostname.includes('localhost')
+    ? 'http://localhost:4001'
+    : 'https://extension-47r9.onrender.com';
 
 // ---------- HELPERS ----------
 function fmt(n){ return Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 }); }
-function ymd(d){ const dt = new Date(d); return isNaN(dt) ? '' : dt.toISOString().slice(0,10); }
 function defaultCutoffForYear(y){
   const nowY = new Date().getUTCFullYear();
   return (y < nowY) ? `${y}-12-31` : new Date().toISOString().slice(0,10);
 }
-function el(id){ return document.getElementById(id); }
+const el = id => document.getElementById(id);
 
+// ---------- API ----------
 // ---------- API ----------
 async function fetchRanks(year, cutoff){
   const u = new URL('/api/ranks', API_BASE);
@@ -17,19 +20,20 @@ async function fetchRanks(year, cutoff){
   u.searchParams.set('cutoff', cutoff);
   u.searchParams.set('base_start', 1950);
   u.searchParams.set('base_end', 2024);
+  u.searchParams.set('span', 'all');         // get the full list so we can center on current
   const res = await fetch(u.toString());
   if (!res.ok) throw new Error('ranks failed');
   return res.json();
 }
-
 async function fetchSummary(year, cutoff){
   const u = new URL('/api/summary', API_BASE);
   u.searchParams.set('year', year);
-  u.searchParams.set('cutoff', cutoff);
+  u.searchParams.set('cutoff', cutoff);      // tells server to compute YTD-only extras
   const res = await fetch(u.toString());
   if (!res.ok) throw new Error('summary failed for '+year);
   return res.json();
 }
+
 
 // ---------- UI BUILD ----------
 function buildYearSelect(){
@@ -49,89 +53,95 @@ function buildYearSelect(){
   });
 }
 
+
 function renderStatus(msg){ el('status').textContent = msg; }
 
-function renderTop(summary, ranks){
+function renderTop(ranks){
   el('asOf').textContent = 'As of ' + ranks.asOf;
   el('currentAce').textContent = fmt(ranks.current.total);
   el('currentRank').textContent = ranks.current.rank;
-  el('rankOf').textContent = `of ${ranks.baseline.years}`;
+  el('rankOf').textContent = `of ${ranks.population || ranks.baseline.years}`;
 }
 
-function makeRowHTML(row, extra) {
-  const diff = (extra && extra._diff) || 0;
-  const diffClass = diff === 0 ? '' : (diff > 0 ? 'bad' : 'good');
-  const diffText = diff === 0 ? '—' : (diff > 0 ? `+${fmt(diff)}` : `${fmt(diff)}`);
 
-  // extra fields (from /summary)
-  const storms = extra ? (extra.storms?.length ?? '—') : '—';
-  const maxW   = extra ? (extra.storms?.reduce((m,s)=>Math.max(m, s.maxWind||0),0) ?? 0) : 0;
-  const minP   = extra ? (extra.storms?.reduce((m,s)=> (s.minPres && s.minPres>0) ? Math.min(m, s.minPres) : m, Infinity) || null) : null;
-  const parTot = extra ? (extra.par?.total ?? '—') : '—';
+function makeRowHTML(row, extra, currentTotal) {
+  const ct = Number(currentTotal);
+  const diff = Number.isFinite(ct) ? Number((row.total - ct).toFixed(1)) : null;
+  const diffTxt = (diff === null) ? '—' : (diff === 0 ? '—' : (diff > 0 ? `+${fmt(diff)}` : `${fmt(diff)}`));
+  const diffClass = diff === null ? '' : (diff > 0 ? 'bad' : (diff < 0 ? 'good' : ''));
 
-  const maxWtxt = maxW ? `${Math.round(maxW/5)*5} kt` : '—';
-  const minPtxt = Number.isFinite(minP) ? `${minP} hPa` : '—';
+  // YTD extras from /summary
+  const stormsYTD = extra?.ytd?.stormsCount ?? '—';
+  const maxWYTD   = (extra?.ytd?.maxWind ? `${Math.round(extra.ytd.maxWind/5)*5} kt` : '—');
+  const parYTD    = extra?.ytd?.parCount ?? '—';
 
-  return `<tr>
+  return `<tr class="${row.isCurrent ? 'current' : ''}" data-year="${row.year}">
     <td class="rank">${row.rank}</td>
     <td class="year-cell">${row.year}</td>
     <td>${fmt(row.total)}</td>
-    <td class="diff ${diffClass}">${diffText}</td>
-    <td>${storms}</td>
-    <td>${maxWtxt}</td>
-    <td>${minPtxt}</td>
-    <td>${parTot}</td>
+    <td class="diff ${diffClass}">${diffTxt}</td>
+    <td>${stormsYTD}</td>
+    <td>${maxWYTD}</td>
+    <td>${parYTD}</td>
   </tr>`;
 }
 
+// Build the scrollable YTD table and center on the current year
 async function renderTable(ranks){
-  const tableWrap = el('ranksTable');
-  tableWrap.innerHTML = '';
+  const wrap = el('ranksTable');
+  wrap.innerHTML = '';
 
-  // fetch extra summary for each year in the window (parallel)
-  const cutoff = ranks.asOf;
+  // fetch extra per-year YTD info in parallel (all years use the same month/day cutoff)
+  const cutoff = ranks.asOf;                          // "YYYY-MM-DD"
   const years  = ranks.window.map(r => r.year);
+  const results = await Promise.allSettled(years.map(y => fetchSummary(y, cutoff)));
 
-  const summaries = await Promise.allSettled(
-    years.map(y => fetchSummary(y, cutoff))
-  );
-
-  // index extras by year
   const extraByYear = new Map();
-  summaries.forEach((p,i) => {
-    if (p.status === 'fulfilled') {
-      extraByYear.set(years[i], p.value);
-    }
+  results.forEach((p, i) => {
+    if (p.status === 'fulfilled') extraByYear.set(years[i], p.value);
   });
 
-  // compute current for diff
-  const current = ranks.current.total;
+  const currentTotal = ranks.current.total;
 
+  // scrollable container
+  const scroller = document.createElement('div');
+  scroller.className = 'table-scroll';
+
+  // table + header
   const tbl = document.createElement('table');
-  tbl.innerHTML = `<thead>
-    <tr>
-      <th>Rank</th>
-      <th>Year</th>
-      <th>YTD ACE</th>
-      <th>Δ vs current</th>
-      <th>Storms*</th>
-      <th>Max 1-min</th>
-      <th>Min CP</th>
-      <th>PAR entries</th>
-    </tr>
-  </thead><tbody></tbody>`;
+  tbl.innerHTML = `
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Year</th>
+        <th>YTD ACE</th>
+        <th>Δ vs current</th>
+        <th>Storms (YTD)</th>
+        <th>Max 1-min (YTD)</th>
+        <th>PAR entries (YTD)</th>
+      </tr>
+    </thead>
+    <tbody></tbody>`;
   const tbody = tbl.querySelector('tbody');
 
+  // add rows — makeRowHTML returns a full <tr>…</tr>, so insert the HTML directly
   ranks.window.forEach(row => {
     const extra = extraByYear.get(row.year);
-    if (extra) extra._diff = Number((row.total - current).toFixed(1));
-    const tr = document.createElement('tr');
-    tr.innerHTML = makeRowHTML(row, extra);
-    tbody.appendChild(tr);
+    tbody.insertAdjacentHTML('beforeend', makeRowHTML(row, extra, currentTotal));
   });
 
-  tableWrap.appendChild(tbl);
+  scroller.appendChild(tbl);
+  wrap.appendChild(scroller);
+
+  // center on the current year row after layout
+  requestAnimationFrame(() => {
+    const cur = scroller.querySelector('tr.current');
+    if (cur) cur.scrollIntoView({ block: 'center', inline: 'nearest' });
+  });
 }
+
+
+
 
 async function refresh(){
   const year   = Number(el('yearSelect').value);
@@ -140,7 +150,7 @@ async function refresh(){
   try{
     renderStatus('Loading …');
     const ranks = await fetchRanks(year, cutoff);
-    renderTop(null, ranks);
+    renderTop(ranks);
     await renderTable(ranks);
     renderStatus('Loaded.');
   }catch(e){
@@ -148,7 +158,6 @@ async function refresh(){
     renderStatus('Failed: ' + e.message);
   }
 }
-
 // ---------- BOOT ----------
 (function init(){
   buildYearSelect();

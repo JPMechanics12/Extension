@@ -20,4 +20,4 @@ function resolveIBTRACSPath() {
 
 export const IBTRACS_PATH = resolveIBTRACSPath();
 export const DEFAULT_YEAR = Number(process.env.DEFAULT_YEAR || new Date().getUTCFullYear());
-export const UCAR_BASE = 'https://hurricanes.ral.ucar.edu/repository/data/bdecks_open';
+export const UCAR_BASE = 'https://hurricanes.ral.ucar.edu/repository/data';

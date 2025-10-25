@@ -18,6 +18,9 @@ body{
   color: var(--ink);
   background: var(--bg);
 }
+.table tr.current {
+  background: rgba(34, 211, 238, 0.08);
+}
 
 .wrap{ width:min(1200px, 94vw); margin:0 auto; }
 
@@ -95,3 +98,26 @@ tbody tr:hover{ background:#fafcff; }
 .diff.good{ color: var(--good); }
 .diff.bad { color: var(--bad); }
 .hint{ color:var(--muted); font-size:.85rem; margin-top:8px; }
+/* Scroll container */
+.table {
+  max-height: 62vh;        /* or 480px, your call */
+  overflow: auto;
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* Keep the header visible while scrolling */
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: #f9fafb;
+  z-index: 1;
+}
+
+/* Highlight current row */
+.table tr.current { background: rgba(34,211,238,.10); }
+
+/* Diff colors */
+td.diff.good { color: #16a34a; }
+td.diff.bad  { color: #dc2626; }
